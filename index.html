@@ -18,6 +18,8 @@ AFRAME.registerComponent('etiqueta', {
   update: function () {
     var d = this.data;
     var lineas = d.texto.split('|');
+    var colores = lineas.map(function (l) { var m = /^\{(#[0-9A-Fa-f]{6})\}/.exec(l); return m ? m[1] : null; });
+    lineas = lineas.map(function (l) { return l.replace(/^\{#[0-9A-Fa-f]{6}\}/, ''); });
     var W = 1024, pad = 56, tam = 76, alto = 100;
     var c = document.createElement('canvas');
     var g = c.getContext('2d');
@@ -46,6 +48,7 @@ AFRAME.registerComponent('etiqueta', {
     g.fillStyle = d.color; g.textAlign = 'center'; g.textBaseline = 'middle';
     for (var j = 0; j < lineas.length; j++) {
       g.font = (j === 0 ? 'bold ' : '') + tam + 'px Arial, Helvetica, sans-serif';
+      g.fillStyle = colores[j] || d.color;
       g.fillText(lineas[j], W / 2, pad + alto * j + alto / 2);
     }
     var tex = new THREE.CanvasTexture(c);
@@ -66,6 +69,49 @@ AFRAME.registerComponent('mirar', {
     if (!cam) { return; }
     cam.getWorldPosition(this.v);
     this.el.object3D.lookAt(this.v);
+  }
+});
+// Muro de costos: barras a escala dibujadas en un lienzo.
+AFRAME.registerComponent('costos', {
+  schema: { ancho: { type: 'number', default: 1.6 } },
+  init: function () {
+    var W = 1024, H = 800, c = document.createElement('canvas');
+    c.width = W; c.height = H;
+    var g = c.getContext('2d');
+    g.fillStyle = '#FBF8F1'; g.fillRect(0, 0, W, H);
+    g.lineWidth = 10; g.strokeStyle = '#0F2A47'; g.strokeRect(5, 5, W - 10, H - 10);
+    g.textBaseline = 'alphabetic';
+    g.fillStyle = '#14532D'; g.font = 'bold 30px Arial, Helvetica, sans-serif'; g.textAlign = 'left';
+    g.fillText('PREVENIR CUESTA MENOS', 60, 80);
+    g.fillStyle = '#0F2A47'; g.font = 'bold 46px Georgia, serif';
+    g.fillText('El sistema frente a una hospitalización', 60, 140);
+    var filas = [
+      ['Prototipo completo, con Bti', '$412.100', 0.057, '#14532D'],
+      ['Una hospitalización por dengue', '$1.412.023', 0.196, '#0F2A47'],
+      ['Costo médico directo por paciente', '$7.190.000', 1, '#B4371F']
+    ];
+    var y = 215, largo = W - 120;
+    filas.forEach(function (f) {
+      g.fillStyle = '#1B2B3A'; g.font = '34px Arial, Helvetica, sans-serif'; g.textAlign = 'left';
+      g.fillText(f[0], 60, y);
+      g.font = 'bold 36px Arial, Helvetica, sans-serif'; g.textAlign = 'right';
+      g.fillText(f[1], W - 60, y);
+      g.fillStyle = '#E4DCC8'; g.fillRect(60, y + 18, largo, 44);
+      g.fillStyle = f[3]; g.fillRect(60, y + 18, Math.max(largo * f[2], 14), 44);
+      y += 130;
+    });
+    g.fillStyle = '#B4371F'; g.font = 'bold 150px Georgia, serif'; g.textAlign = 'left';
+    g.fillText('3×', 60, 715);
+    g.fillStyle = '#0F2A47'; g.font = 'bold 36px Arial, Helvetica, sans-serif';
+    g.fillText('Una sola hospitalización cuesta más', 300, 645);
+    g.fillText('de 3 veces el prototipo completo.', 300, 692);
+    g.fillStyle = '#4A5560'; g.font = '26px Arial, Helvetica, sans-serif';
+    g.fillText('Fuentes: EPS SOS (2024) · Rodríguez-Morales et al. (2024)', 300, 745);
+    var tex = new THREE.CanvasTexture(c);
+    if (THREE.SRGBColorSpace) { tex.colorSpace = THREE.SRGBColorSpace; }
+    var geo = new THREE.PlaneGeometry(this.data.ancho, this.data.ancho * H / W);
+    var mat = new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide });
+    this.el.setObject3D('mesh', new THREE.Mesh(geo, mat));
   }
 });
 </script>
@@ -144,13 +190,6 @@ AFRAME.registerComponent('mirar', {
       animation="property: scale; from: 1 1 1; to: 0.3 0.3 0.3; dir: alternate; loop: true; dur: 900"></a-sphere>
   </a-entity>
 
-  <!-- Señal inalámbrica: del tanque y de la ovitrampa al panel -->
-  <a-sphere radius="0.02" color="#14532D"
-    animation="property: position; from: 0.5 0.98 -1.54; to: -1.1 1.5 -1.6; loop: true; dur: 2200; easing: linear"></a-sphere>
-  <a-sphere radius="0.02" color="#14532D"
-    animation="property: position; from: 0.5 0.98 -1.54; to: -1.1 1.5 -1.6; loop: true; dur: 2200; delay: 1100; easing: linear"></a-sphere>
-  <a-sphere radius="0.02" color="#8A5A2B"
-    animation="property: position; from: 0.97 0.9 -1.3; to: -1.1 1.5 -1.6; loop: true; dur: 2800; easing: linear"></a-sphere>
 </a-scene>
 
 <script>
@@ -170,6 +209,7 @@ AFRAME.registerComponent('mirar', {
     var e = document.createElement('a-entity');
     e.setAttribute('line', { start: a, end: b, color: '#4A5560' });
     escena.appendChild(e);
+    return e;
   }
 
   // Larvas dentro del agua
@@ -246,59 +286,125 @@ AFRAME.registerComponent('mirar', {
   }
   var relojMosquitos = null;
 
-  // Título
-  crear({ texto: 'Sistema Centinela Aedes|Prototipo: tanque, sensores, Bti y ovitrampa', ancho: 2.2, fondo: '#0F2A47', color: '#F4EFE6', borde: '#D9B26A' }, '0 2.25 -2.7');
-
-  // Etiquetas del prototipo
-  crear({ texto: 'Sensores y PCB|Temperatura, turbidez y pH', ancho: 0.62 }, '0.3 1.42 -1.2');
-  linea('0.36 1.33 -1.22', '0.5 0.84 -1.48');
-  crear({ texto: 'Dosificador flotante|con tableta de Bti', ancho: 0.5 }, '-0.62 0.78 -1.0');
-  linea('-0.42 0.76 -1.05', '-0.14 0.65 -1.38');
-  var etLarvas = crear({ texto: 'Larvas de Aedes|en el agua almacenada', ancho: 0.5, borde: '#B4371F' }, '-0.62 0.4 -1.0');
+  // ---------- Etiquetas fijas ----------
+  crear({ texto: 'Sistema Centinela Aedes|Prototipo: tanque, sensores, Bti y ovitrampa', ancho: 2.2, fondo: '#0F2A47', color: '#F4EFE6', borde: '#D9B26A' }, '0 2.85 -2.8');
+  crear({ texto: 'Sensores y PCB|{#B4371F}● Temperatura del agua|{#8A6A14}● Turbidez|{#14532D}● pH', ancho: 0.6 }, '0.32 1.42 -1.2');
+  linea('0.4 1.27 -1.22', '0.5 0.84 -1.48');
   crear({ texto: 'Ovitrampa|con sensor óptico', ancho: 0.5 }, '1.3 1.12 -1.1');
   linea('1.2 1.05 -1.14', '0.96 0.9 -1.3');
+  var etBti = crear({ texto: 'Dosificador flotante|con tableta de Bti', ancho: 0.5, borde: '#14532D' }, '-0.62 0.78 -1.0');
+  var liBti = linea('-0.42 0.76 -1.05', '-0.14 0.65 -1.38');
+  var etLarvas = crear({ texto: '', ancho: 0.5 }, '-0.62 0.4 -1.0');
 
-  // Panel web y celular
+  // Panel web, celular, paso actual y botón
   var panel = crear({ texto: '', ancho: 0.95 }, '-1.1 1.5 -1.6');
   var celular = crear({ texto: '', ancho: 0.62 }, '-1.05 0.95 -1.2');
-
-  // Botón para recorrer el ciclo
+  var paso = crear({ texto: '', ancho: 1.15 }, '1.1 2.08 -1.5');
   var boton = crear({ texto: '', ancho: 0.62 }, '0.95 1.62 -1.3', function (e) { e.classList.add('boton'); });
+
+  // Muro de costos, a la derecha de quien observa
+  var muro = pieza('a-entity', { position: '2.1 1.45 -0.2', costos: { ancho: 1.6 }, mirar: '' });
+
+  // ---------- Líneas punteadas de datos ----------
+  function punteada(p0, c, p2, color) {
+    var grupo = pieza('a-entity', {});
+    var n = 22;
+    for (var i = 0; i <= n; i++) {
+      var t = i / n, u = 1 - t;
+      var x = u * u * p0[0] + 2 * u * t * c[0] + t * t * p2[0];
+      var y = u * u * p0[1] + 2 * u * t * c[1] + t * t * p2[1];
+      var z = u * u * p0[2] + 2 * u * t * c[2] + t * t * p2[2];
+      pieza('a-sphere', { radius: 0.011, 'segments-width': 8, 'segments-height': 6, position: x + ' ' + y + ' ' + z, material: 'shader: flat; color: ' + color }, grupo);
+    }
+    return grupo;
+  }
+  var datosTanque = punteada([0.5, 0.98, -1.54], [-0.2, 2.1, -1.6], [-0.75, 1.74, -1.6], '#14532D');
+  var datosCelular = punteada([-1.1, 1.27, -1.56], [-1.2, 1.2, -1.4], [-1.07, 1.1, -1.24], '#0F2A47');
+  var datosOvitrampa = punteada([0.97, 0.92, -1.3], [0.1, 2.4, -1.6], [-0.85, 1.74, -1.6], '#8A5A2B');
+  var etDatos = crear({ texto: 'Datos por LoRa / GSM', ancho: 0.5, borde: '#14532D', color: '#14532D' }, '-1.05 1.9 -1.6');
+
+  // Aro que resalta la pieza que actúa en cada paso
+  var foco = pieza('a-torus', { 'radius-tubular': 0.012, radius: 0.3, material: 'shader: flat; color: #E0A526', mirar: '', visible: false });
+  foco.setAttribute('animation', { property: 'scale', from: '1 1 1', to: '1.12 1.12 1.12', dir: 'alternate', loop: true, dur: 650, easing: 'easeInOutSine' });
 
   var tapa = document.getElementById('tapa');
   var dosificador = document.getElementById('dosificador');
-  var controlado = false;
+  var actual = 0, hayMosquitos = true;
+
+  var ROJO = { fondo: '#F6DDD6', borde: '#B4371F', color: '#0F2A47' };
+  var VERDE = { fondo: '#E4EEDD', borde: '#14532D', color: '#0F2A47' };
+  var NEUTRO = { fondo: '#FBF8F1', borde: '#0F2A47', color: '#0F2A47' };
+  function con(texto, estilo) { return { texto: texto, fondo: estilo.fondo, borde: estilo.borde, color: estilo.color }; }
+
+  var PASOS = [
+    { titulo: 'El problema|Tanque destapado: llegan mosquitos|y nacen larvas',
+      boton: 'EMPEZAR: 1 · DETECTAR',
+      panel: con('PANEL WEB · Tanque 01|Sin lecturas todavía|(datos de ejemplo)', NEUTRO),
+      celular: con('CELULAR|Sin alertas', NEUTRO), foco: null },
+    { titulo: 'Paso 1 de 4 · DETECTAR|Los sensores miden temperatura,|turbidez y pH del agua',
+      boton: 'SIGUIENTE: 2 · ALERTAR',
+      panel: con('PANEL WEB · Tanque 01|Agua 29 °C · turbia · pH 7,8|Riesgo ALTO|(datos de ejemplo)', ROJO),
+      celular: con('CELULAR|Sin alertas', NEUTRO), foco: ['0.4 0.6 -1.5', 0.3] },
+    { titulo: 'Paso 2 de 4 · ALERTAR|La plataforma avisa al celular|de la familia',
+      boton: 'SIGUIENTE: 3 · TRATAR',
+      panel: con('PANEL WEB · Tanque 01|Riesgo ALTO|Alerta enviada al celular|(datos de ejemplo)', ROJO),
+      celular: con('CELULAR · Alerta|Riesgo alto: tape el tanque|y agregue larvicida', ROJO), foco: ['-1.05 0.95 -1.2', 0.4] },
+    { titulo: 'Paso 3 de 4 · TRATAR|La familia tapa el tanque|y aplica la tableta de Bti',
+      boton: 'SIGUIENTE: 4 · VERIFICAR',
+      panel: con('PANEL WEB · Tanque 01|Tanque tapado · Bti aplicado|Riesgo en descenso|(datos de ejemplo)', NEUTRO),
+      celular: con('CELULAR · Listo|Tanque protegido|Reponga el Bti en 30 días', VERDE), foco: ['0 0.92 -1.5', 0.52] },
+    { titulo: 'Paso 4 de 4 · VERIFICAR|La ovitrampa confirma|que el mosquito baja',
+      boton: 'REINICIAR EL CICLO',
+      panel: con('PANEL WEB · Tanque 01|Riesgo BAJO|Ovitrampa: conteo a la baja|(datos de ejemplo)', VERDE),
+      celular: con('CELULAR · Listo|Tanque protegido|Reponga el Bti en 30 días', VERDE), foco: ['0.9 0.8 -1.3', 0.22] }
+  ];
 
   function pintar() {
-    if (controlado) {
-      panel.setAttribute('etiqueta', { texto: 'PANEL WEB · Tanque 01|Riesgo BAJO|Tanque tapado · Bti aplicado|Ovitrampa: conteo a la baja|(datos de ejemplo)', fondo: '#E4EEDD', borde: '#14532D', color: '#0F2A47' });
-      celular.setAttribute('etiqueta', { texto: 'CELULAR · Listo|Tanque protegido|Reponga el Bti en 30 días', fondo: '#E4EEDD', borde: '#14532D', color: '#0F2A47' });
-      boton.setAttribute('etiqueta', { texto: 'Apunte y oprima el gatillo|REINICIAR EL CICLO', fondo: '#0F2A47', color: '#F4EFE6', borde: '#D9B26A' });
-      tapa.setAttribute('animation', { property: 'rotation', to: '0 0 0', dur: 900, easing: 'easeInOutQuad' });
-      dosificador.setAttribute('visible', true);
-      larvas.setAttribute('visible', false);
+    var p = PASOS[actual], tratado = actual >= 3;
+    paso.setAttribute('etiqueta', { texto: p.titulo, fondo: '#0F2A47', color: '#F4EFE6', borde: '#D9B26A' });
+    boton.setAttribute('etiqueta', { texto: 'Apunte y oprima el gatillo|' + p.boton, fondo: '#14532D', color: '#FFFFFF', borde: '#D9B26A' });
+    panel.setAttribute('etiqueta', p.panel);
+    celular.setAttribute('etiqueta', p.celular);
+
+    datosTanque.setAttribute('visible', actual >= 1);
+    etDatos.setAttribute('visible', actual >= 1);
+    datosCelular.setAttribute('visible', actual >= 2);
+    datosOvitrampa.setAttribute('visible', actual >= 4);
+
+    if (p.foco) {
+      foco.setAttribute('position', p.foco[0]);
+      foco.setAttribute('radius', p.foco[1]);
+      foco.setAttribute('visible', true);
+    } else {
+      foco.setAttribute('visible', false);
+    }
+
+    tapa.setAttribute('animation', { property: 'rotation', to: tratado ? '0 0 0' : '0 0 55', dur: 900, easing: 'easeInOutQuad' });
+    dosificador.setAttribute('visible', tratado);
+    etBti.setAttribute('visible', tratado);
+    liBti.setAttribute('visible', tratado);
+    larvas.setAttribute('visible', !tratado);
+    etLarvas.setAttribute('etiqueta', tratado
+      ? { texto: 'Sin larvas|El Bti las elimina en 24 a 48 h', borde: '#14532D' }
+      : { texto: 'Larvas de Aedes|en el agua almacenada', borde: '#B4371F' });
+
+    if (tratado && hayMosquitos) {
       // Los mosquitos se alejan y desaparecen
+      hayMosquitos = false;
       mosquitos.setAttribute('animation', { property: 'position', to: '3 6 -9', dur: 2400, easing: 'easeInQuad' });
       mosquitos.setAttribute('animation__s', { property: 'scale', to: '2.5 2.5 2.5', dur: 2400, easing: 'easeInQuad' });
       clearTimeout(relojMosquitos);
       relojMosquitos = setTimeout(function () { mosquitos.setAttribute('visible', false); }, 2450);
-      etLarvas.setAttribute('etiqueta', { texto: 'Sin larvas|El Bti las elimina en 24 a 48 h', borde: '#14532D' });
-    } else {
-      panel.setAttribute('etiqueta', { texto: 'PANEL WEB · Tanque 01|Riesgo ALTO|Agua tibia y turbia · tanque sin tapar|Ovitrampa: conteo en aumento|(datos de ejemplo)', fondo: '#F6DDD6', borde: '#B4371F', color: '#0F2A47' });
-      celular.setAttribute('etiqueta', { texto: 'CELULAR · Alerta|Riesgo alto: tape el tanque|y agregue larvicida', fondo: '#F6DDD6', borde: '#B4371F', color: '#0F2A47' });
-      boton.setAttribute('etiqueta', { texto: 'Apunte y oprima el gatillo|APLICAR BTI Y TAPAR', fondo: '#14532D', color: '#FFFFFF', borde: '#D9B26A' });
-      tapa.setAttribute('animation', { property: 'rotation', to: '0 0 55', dur: 900, easing: 'easeInOutQuad' });
-      dosificador.setAttribute('visible', false);
-      larvas.setAttribute('visible', true);
+    } else if (!tratado && !hayMosquitos) {
       // Los mosquitos vuelven al tanque destapado
+      hayMosquitos = true;
       clearTimeout(relojMosquitos);
       mosquitos.setAttribute('visible', true);
       mosquitos.setAttribute('animation', { property: 'position', to: '0 0 -1.5', dur: 1600, easing: 'easeOutQuad' });
       mosquitos.setAttribute('animation__s', { property: 'scale', to: '1 1 1', dur: 1600, easing: 'easeOutQuad' });
-      etLarvas.setAttribute('etiqueta', { texto: 'Larvas de Aedes|en el agua almacenada', borde: '#B4371F' });
     }
   }
-  boton.addEventListener('click', function () { controlado = !controlado; pintar(); });
+  boton.addEventListener('click', function () { actual = (actual + 1) % PASOS.length; pintar(); });
   pintar();
 })();
 </script>
