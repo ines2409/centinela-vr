@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sistema Centinela Aedes · Prototipo en realidad virtual</title>
+<script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+<script>
+// Etiqueta dibujada en un lienzo: garantiza tildes y texto exacto.
+AFRAME.registerComponent('etiqueta', {
+  schema: {
+    texto: { type: 'string', default: '' },
+    ancho: { type: 'number', default: 0.6 },
+    fondo: { type: 'string', default: '#FBF8F1' },
+    color: { type: 'string', default: '#0F2A47' },
+    borde: { type: 'string', default: '#0F2A47' }
+  },
+  update: function () {
+    var d = this.data;
+    var lineas = d.texto.split('|');
+    var W = 1024, pad = 56, tam = 76, alto = 100;
+    var c = document.createElement('canvas');
+    var g = c.getContext('2d');
+    // Reducir la letra hasta que la línea más larga quepa.
+    var cabe = false;
+    while (!cabe && tam > 30) {
+      cabe = true;
+      for (var i = 0; i < lineas.length; i++) {
+        g.font = (i === 0 ? 'bold ' : '') + tam + 'px Arial, Helvetica, sans-serif';
+        if (g.measureText(lineas[i]).width > W - pad * 2) { cabe = false; }
+      }
+      if (!cabe) { tam -= 4; }
+    }
+    alto = Math.round(tam * 1.32);
+    c.width = W;
+    c.height = pad * 2 + alto * lineas.length;
+    g = c.getContext('2d');
+    var r = 36;
+    g.beginPath();
+    g.moveTo(r, 4); g.lineTo(W - r, 4); g.quadraticCurveTo(W - 4, 4, W - 4, r);
+    g.lineTo(W - 4, c.height - r); g.quadraticCurveTo(W - 4, c.height - 4, W - r, c.height - 4);
+    g.lineTo(r, c.height - 4); g.quadraticCurveTo(4, c.height - 4, 4, c.height - r);
+    g.lineTo(4, r); g.quadraticCurveTo(4, 4, r, 4); g.closePath();
+    g.fillStyle = d.fondo; g.fill();
+    g.lineWidth = 8; g.strokeStyle = d.borde; g.stroke();
+    g.fillStyle = d.color; g.textAlign = 'center'; g.textBaseline = 'middle';
+    for (var j = 0; j < lineas.length; j++) {
+      g.font = (j === 0 ? 'bold ' : '') + tam + 'px Arial, Helvetica, sans-serif';
+      g.fillText(lineas[j], W / 2, pad + alto * j + alto / 2);
+    }
+    var tex = new THREE.CanvasTexture(c);
+    if (THREE.SRGBColorSpace) { tex.colorSpace = THREE.SRGBColorSpace; }
+    var viejo = this.el.getObject3D('mesh');
+    if (viejo) { viejo.material.map.dispose(); viejo.material.dispose(); viejo.geometry.dispose(); }
+    var geo = new THREE.PlaneGeometry(d.ancho, d.ancho * c.height / W);
+    var mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, side: THREE.DoubleSide });
+    this.el.setObject3D('mesh', new THREE.Mesh(geo, mat));
+  }
+});
+
+// Hace que una etiqueta mire siempre a quien observa.
+AFRAME.registerComponent('mirar', {
+  init: function () { this.v = new THREE.Vector3(); },
+  tick: function () {
+    var cam = this.el.sceneEl.camera;
+    if (!cam) { return; }
+    cam.getWorldPosition(this.v);
+    this.el.object3D.lookAt(this.v);
+  }
+});
+</script>
+</head>
+<body>
+<a-scene background="color: #DDE9EE" renderer="colorManagement: true; antialias: true"
+         cursor="rayOrigin: mouse" raycaster="objects: .boton">
+
+  <!-- Persona que observa y controles de las Meta Quest -->
+  <a-entity id="rig">
+    <a-entity camera look-controls wasd-controls position="0 1.6 0"></a-entity>
+    <a-entity laser-controls="hand: right" raycaster="objects: .boton; far: 8"></a-entity>
+    <a-entity laser-controls="hand: left" raycaster="objects: .boton; far: 8"></a-entity>
+  </a-entity>
+
+  <a-entity light="type: ambient; intensity: 0.9; color: #FFFFFF"></a-entity>
+  <a-entity light="type: directional; intensity: 0.7" position="1 3 2"></a-entity>
+
+  <!-- Piso -->
+  <a-circle rotation="-90 0 0" radius="18" material="shader: flat; color: #D8CDB4"></a-circle>
+  <a-circle rotation="-90 0 0" radius="3.2" position="0 0.003 -0.6" material="shader: flat; color: #E9E2D0"></a-circle>
+  <a-ring rotation="-90 0 0" radius-inner="0.62" radius-outer="0.65" color="#14532D" position="0 0.005 -1.5"></a-ring>
+
+  <!-- TANQUE -->
+  <a-entity id="tanque" position="0 0 -1.5">
+    <a-cylinder radius="0.4" height="0.9" position="0 0.45 0" open-ended="true"
+      material="color: #8FA9BD; opacity: 0.3; transparent: true; side: double; depthWrite: false"></a-cylinder>
+    <a-cylinder radius="0.4" height="0.02" position="0 0.01 0" color="#5E7689"></a-cylinder>
+    <a-torus radius="0.4" radius-tubular="0.01" rotation="90 0 0" position="0 0.9 0" color="#0F2A47"></a-torus>
+    <!-- Agua -->
+    <a-cylinder radius="0.385" height="0.6" position="0 0.32 0"
+      material="color: #3E8FC2; opacity: 0.45; transparent: true; depthWrite: false"></a-cylinder>
+
+    <!-- Tapa (se abre y se cierra) -->
+    <a-entity id="tapa" position="-0.42 0.92 0" rotation="0 0 55">
+      <a-cylinder radius="0.43" height="0.025" position="0.42 0 0" color="#0F2A47"></a-cylinder>
+      <a-cylinder radius="0.05" height="0.05" position="0.42 0.035 0" color="#14532D"></a-cylinder>
+    </a-entity>
+
+    <!-- Caja de sensores con la PCB y el ESP32 -->
+    <a-box position="0.48 0.74 0" width="0.12" height="0.16" depth="0.14" color="#0F2A47"></a-box>
+    <a-sphere position="0.545 0.79 0.04" radius="0.012" color="#3BD16F"
+      animation="property: scale; from: 1 1 1; to: 0.3 0.3 0.3; dir: alternate; loop: true; dur: 700"></a-sphere>
+    <a-cylinder position="0.5 0.9 -0.04" radius="0.006" height="0.16" color="#1B2B3A"></a-cylinder>
+    <a-cylinder position="0.31 0.74 0" radius="0.008" height="0.3" rotation="0 0 90" color="#1B2B3A"></a-cylinder>
+    <!-- Sondas: temperatura, turbidez y pH -->
+    <a-cylinder position="0.3 0.52 0" radius="0.009" height="0.44" color="#B4371F"></a-cylinder>
+    <a-sphere position="0.3 0.3 0" radius="0.02" color="#B4371F"></a-sphere>
+    <a-cylinder position="0.23 0.52 0.05" radius="0.009" height="0.44" color="#D9B26A"></a-cylinder>
+    <a-sphere position="0.23 0.3 0.05" radius="0.02" color="#D9B26A"></a-sphere>
+    <a-cylinder position="0.17 0.52 -0.05" radius="0.009" height="0.44" color="#14532D"></a-cylinder>
+    <a-sphere position="0.17 0.3 -0.05" radius="0.02" color="#14532D"></a-sphere>
+
+    <!-- Dosificador flotante con Bti -->
+    <a-entity id="dosificador" position="-0.12 0.63 0.1" visible="false"
+      animation="property: position; from: -0.12 0.625 0.1; to: -0.12 0.64 0.1; dir: alternate; loop: true; dur: 1400; easing: easeInOutSine">
+      <a-cylinder radius="0.075" height="0.045" color="#8A5A2B"></a-cylinder>
+      <a-cylinder radius="0.035" height="0.05" color="#FBF8F1"></a-cylinder>
+    </a-entity>
+
+    <!-- Larvas -->
+    <a-entity id="larvas"></a-entity>
+  </a-entity>
+
+  <!-- OVITRAMPA sobre un soporte -->
+  <a-entity id="ovitrampa" position="0.9 0 -1.3">
+    <a-cylinder radius="0.13" height="0.7" position="0 0.35 0" color="#C9BFA8"></a-cylinder>
+    <a-cylinder radius="0.075" height="0.15" position="0 0.775 0" open-ended="true"
+      material="color: #1B1B1B; side: double"></a-cylinder>
+    <a-cylinder radius="0.075" height="0.01" position="0 0.705 0" color="#1B1B1B"></a-cylinder>
+    <a-cylinder radius="0.07" height="0.08" position="0 0.75 0"
+      material="color: #3E8FC2; opacity: 0.6; transparent: true"></a-cylinder>
+    <a-box position="-0.03 0.81 0" width="0.03" height="0.2" depth="0.006" rotation="0 0 12" color="#E8D9B5"></a-box>
+    <a-box position="0.07 0.87 0" width="0.06" height="0.035" depth="0.05" color="#8A5A2B"></a-box>
+    <a-sphere position="0.07 0.895 0.02" radius="0.008" color="#3BD16F"
+      animation="property: scale; from: 1 1 1; to: 0.3 0.3 0.3; dir: alternate; loop: true; dur: 900"></a-sphere>
+  </a-entity>
+
+  <!-- Señal inalámbrica: del tanque y de la ovitrampa al panel -->
+  <a-sphere radius="0.02" color="#14532D"
+    animation="property: position; from: 0.5 0.98 -1.54; to: -1.1 1.5 -1.6; loop: true; dur: 2200; easing: linear"></a-sphere>
+  <a-sphere radius="0.02" color="#14532D"
+    animation="property: position; from: 0.5 0.98 -1.54; to: -1.1 1.5 -1.6; loop: true; dur: 2200; delay: 1100; easing: linear"></a-sphere>
+  <a-sphere radius="0.02" color="#8A5A2B"
+    animation="property: position; from: 0.97 0.9 -1.3; to: -1.1 1.5 -1.6; loop: true; dur: 2800; easing: linear"></a-sphere>
+</a-scene>
+
+<script>
+(function () {
+  var escena = document.querySelector('a-scene');
+
+  function crear(datos, pos, extra) {
+    var e = document.createElement('a-entity');
+    e.setAttribute('position', pos);
+    e.setAttribute('etiqueta', datos);
+    e.setAttribute('mirar', '');
+    if (extra) { extra(e); }
+    escena.appendChild(e);
+    return e;
+  }
+  function linea(a, b) {
+    var e = document.createElement('a-entity');
+    e.setAttribute('line', { start: a, end: b, color: '#4A5560' });
+    escena.appendChild(e);
+  }
+
+  // Larvas dentro del agua
+  var larvas = document.getElementById('larvas');
+  var sitios = [[-0.2, 0.2, 0.12], [0.05, 0.35, 0.2], [-0.05, 0.12, -0.18], [0.12, 0.45, -0.15],
+                [-0.25, 0.4, -0.05], [0.02, 0.25, -0.02], [-0.12, 0.5, 0.22], [0.2, 0.15, 0.15]];
+  sitios.forEach(function (p, i) {
+    var l = document.createElement('a-cylinder');
+    l.setAttribute('radius', 0.007);
+    l.setAttribute('height', 0.05);
+    l.setAttribute('color', '#2B1D12');
+    l.setAttribute('position', p.join(' '));
+    l.setAttribute('animation', { property: 'rotation', from: '0 0 -35', to: '0 0 35', dir: 'alternate', loop: true, dur: 380 + i * 40, easing: 'easeInOutSine' });
+    l.setAttribute('animation__sube', { property: 'position', to: p[0] + ' ' + (p[1] + 0.06) + ' ' + p[2], dir: 'alternate', loop: true, dur: 1500 + i * 130, easing: 'easeInOutSine' });
+    larvas.appendChild(l);
+  });
+
+  // ---------- Barrio de fondo: siluetas sencillas ----------
+  var semilla = 7;
+  function azar() { semilla = (semilla * 16807) % 2147483647; return (semilla - 1) / 2147483646; }
+  function pieza(tipo, attrs, padre) {
+    var e = document.createElement(tipo);
+    for (var k in attrs) { e.setAttribute(k, attrs[k]); }
+    (padre || escena).appendChild(e);
+    return e;
+  }
+  function casa(angulo, radio, tono, techo, conDetalle) {
+    var ancho = 1.6 + azar() * 1.6, alto = 2.0 + azar() * 1.5, fondo = 2.2;
+    var a = angulo * Math.PI / 180;
+    var c = pieza('a-entity', { position: (radio * Math.sin(a)) + ' 0 ' + (-radio * Math.cos(a)), rotation: '0 ' + (-angulo) + ' 0' });
+    pieza('a-box', { width: ancho, height: alto, depth: fondo, position: '0 ' + (alto / 2) + ' 0', material: 'shader: flat; color: ' + tono }, c);
+    // Techo de lámina, inclinado y con alero
+    pieza('a-box', { width: ancho + 0.35, height: 0.07, depth: fondo + 0.4, position: '0 ' + (alto + 0.1) + ' 0', rotation: (azar() * 8 - 4) + ' 0 ' + (azar() * 10 - 5), material: 'shader: flat; color: ' + techo }, c);
+    if (conDetalle) {
+      // Puerta y ventana
+      pieza('a-plane', { width: 0.5, height: 1.2, position: (-ancho / 4) + ' 0.6 ' + (fondo / 2 + 0.01), material: 'shader: flat; color: ' + techo }, c);
+      pieza('a-plane', { width: 0.5, height: 0.45, position: (ancho / 4) + ' 1.3 ' + (fondo / 2 + 0.01), material: 'shader: flat; color: #C9B98F' }, c);
+      // Tanque de agua elevado en algunas casas
+      if (azar() > 0.45) {
+        pieza('a-cylinder', { radius: 0.32, height: 0.55, position: (ancho / 4) + ' ' + (alto + 0.45) + ' 0', material: 'shader: flat; color: #26394A' }, c);
+      }
+    }
+  }
+  var ang;
+  for (ang = 0; ang < 360; ang += 15) { casa(ang + azar() * 6, 13.5 + azar() * 1.5, '#8799A6', '#74868F', false); }
+  for (ang = 8; ang < 360; ang += 17) { casa(ang + azar() * 5, 9.5 + azar() * 1.2, '#4D6172', '#374858', true); }
+  // Postes y cables
+  var postes = [];
+  for (ang = 20; ang < 360; ang += 45) {
+    var pa = ang * Math.PI / 180, px = 8 * Math.sin(pa), pz = -8 * Math.cos(pa);
+    pieza('a-cylinder', { radius: 0.05, height: 4.6, position: px + ' 2.3 ' + pz, material: 'shader: flat; color: #2F3D49' });
+    pieza('a-box', { width: 0.9, height: 0.06, depth: 0.06, position: px + ' 4.3 ' + pz, rotation: '0 ' + (-ang) + ' 0', material: 'shader: flat; color: #2F3D49' });
+    postes.push(px + ' 4.3 ' + pz);
+  }
+  postes.forEach(function (p, i) {
+    pieza('a-entity', { line: { start: p, end: postes[(i + 1) % postes.length], color: '#2F3D49' } });
+  });
+
+  // ---------- Mosquitos alrededor del tanque destapado ----------
+  var mosquitos = pieza('a-entity', { id: 'mosquitos', position: '0 0 -1.5' });
+  for (var m = 0; m < 10; m++) {
+    var orbita = pieza('a-entity', {
+      position: '0 ' + (0.95 + azar() * 0.5) + ' 0',
+      rotation: (azar() * 30 - 15) + ' ' + (azar() * 360) + ' ' + (azar() * 30 - 15)
+    }, mosquitos);
+    orbita.setAttribute('animation', { property: 'object3D.rotation.y', from: 0, to: (m % 2 ? 360 : -360), loop: true, dur: 2600 + azar() * 2600, easing: 'linear' });
+    var cuerpo = pieza('a-entity', { position: (0.2 + azar() * 0.45) + ' 0 0' }, orbita);
+    cuerpo.setAttribute('animation', { property: 'object3D.position.y', from: -0.06, to: 0.06, dir: 'alternate', loop: true, dur: 500 + azar() * 500, easing: 'easeInOutSine' });
+    pieza('a-sphere', { radius: 0.015, scale: '1 1 2.4', material: 'shader: flat; color: #1A1A1A' }, cuerpo);
+    pieza('a-plane', { width: 0.035, height: 0.014, position: '0.02 0.012 0', rotation: '-90 0 20', material: 'shader: flat; color: #FFFFFF; opacity: 0.7; transparent: true; side: double' }, cuerpo)
+      .setAttribute('animation', { property: 'object3D.rotation.z', from: 0.1, to: 0.9, dir: 'alternate', loop: true, dur: 70, easing: 'linear' });
+    pieza('a-plane', { width: 0.035, height: 0.014, position: '-0.02 0.012 0', rotation: '-90 0 -20', material: 'shader: flat; color: #FFFFFF; opacity: 0.7; transparent: true; side: double' }, cuerpo)
+      .setAttribute('animation', { property: 'object3D.rotation.z', from: -0.1, to: -0.9, dir: 'alternate', loop: true, dur: 70, easing: 'linear' });
+  }
+  var relojMosquitos = null;
+
+  // Título
+  crear({ texto: 'Sistema Centinela Aedes|Prototipo: tanque, sensores, Bti y ovitrampa', ancho: 2.2, fondo: '#0F2A47', color: '#F4EFE6', borde: '#D9B26A' }, '0 2.25 -2.7');
+
+  // Etiquetas del prototipo
+  crear({ texto: 'Sensores y PCB|Temperatura, turbidez y pH', ancho: 0.62 }, '0.3 1.42 -1.2');
+  linea('0.36 1.33 -1.22', '0.5 0.84 -1.48');
+  crear({ texto: 'Dosificador flotante|con tableta de Bti', ancho: 0.5 }, '-0.62 0.78 -1.0');
+  linea('-0.42 0.76 -1.05', '-0.14 0.65 -1.38');
+  var etLarvas = crear({ texto: 'Larvas de Aedes|en el agua almacenada', ancho: 0.5, borde: '#B4371F' }, '-0.62 0.4 -1.0');
+  crear({ texto: 'Ovitrampa|con sensor óptico', ancho: 0.5 }, '1.3 1.12 -1.1');
+  linea('1.2 1.05 -1.14', '0.96 0.9 -1.3');
+
+  // Panel web y celular
+  var panel = crear({ texto: '', ancho: 0.95 }, '-1.1 1.5 -1.6');
+  var celular = crear({ texto: '', ancho: 0.62 }, '-1.05 0.95 -1.2');
+
+  // Botón para recorrer el ciclo
+  var boton = crear({ texto: '', ancho: 0.62 }, '0.95 1.62 -1.3', function (e) { e.classList.add('boton'); });
+
+  var tapa = document.getElementById('tapa');
+  var dosificador = document.getElementById('dosificador');
+  var controlado = false;
+
+  function pintar() {
+    if (controlado) {
+      panel.setAttribute('etiqueta', { texto: 'PANEL WEB · Tanque 01|Riesgo BAJO|Tanque tapado · Bti aplicado|Ovitrampa: conteo a la baja|(datos de ejemplo)', fondo: '#E4EEDD', borde: '#14532D', color: '#0F2A47' });
+      celular.setAttribute('etiqueta', { texto: 'CELULAR · Listo|Tanque protegido|Reponga el Bti en 30 días', fondo: '#E4EEDD', borde: '#14532D', color: '#0F2A47' });
+      boton.setAttribute('etiqueta', { texto: 'Apunte y oprima el gatillo|REINICIAR EL CICLO', fondo: '#0F2A47', color: '#F4EFE6', borde: '#D9B26A' });
+      tapa.setAttribute('animation', { property: 'rotation', to: '0 0 0', dur: 900, easing: 'easeInOutQuad' });
+      dosificador.setAttribute('visible', true);
+      larvas.setAttribute('visible', false);
+      // Los mosquitos se alejan y desaparecen
+      mosquitos.setAttribute('animation', { property: 'position', to: '3 6 -9', dur: 2400, easing: 'easeInQuad' });
+      mosquitos.setAttribute('animation__s', { property: 'scale', to: '2.5 2.5 2.5', dur: 2400, easing: 'easeInQuad' });
+      clearTimeout(relojMosquitos);
+      relojMosquitos = setTimeout(function () { mosquitos.setAttribute('visible', false); }, 2450);
+      etLarvas.setAttribute('etiqueta', { texto: 'Sin larvas|El Bti las elimina en 24 a 48 h', borde: '#14532D' });
+    } else {
+      panel.setAttribute('etiqueta', { texto: 'PANEL WEB · Tanque 01|Riesgo ALTO|Agua tibia y turbia · tanque sin tapar|Ovitrampa: conteo en aumento|(datos de ejemplo)', fondo: '#F6DDD6', borde: '#B4371F', color: '#0F2A47' });
+      celular.setAttribute('etiqueta', { texto: 'CELULAR · Alerta|Riesgo alto: tape el tanque|y agregue larvicida', fondo: '#F6DDD6', borde: '#B4371F', color: '#0F2A47' });
+      boton.setAttribute('etiqueta', { texto: 'Apunte y oprima el gatillo|APLICAR BTI Y TAPAR', fondo: '#14532D', color: '#FFFFFF', borde: '#D9B26A' });
+      tapa.setAttribute('animation', { property: 'rotation', to: '0 0 55', dur: 900, easing: 'easeInOutQuad' });
+      dosificador.setAttribute('visible', false);
+      larvas.setAttribute('visible', true);
+      // Los mosquitos vuelven al tanque destapado
+      clearTimeout(relojMosquitos);
+      mosquitos.setAttribute('visible', true);
+      mosquitos.setAttribute('animation', { property: 'position', to: '0 0 -1.5', dur: 1600, easing: 'easeOutQuad' });
+      mosquitos.setAttribute('animation__s', { property: 'scale', to: '1 1 1', dur: 1600, easing: 'easeOutQuad' });
+      etLarvas.setAttribute('etiqueta', { texto: 'Larvas de Aedes|en el agua almacenada', borde: '#B4371F' });
+    }
+  }
+  boton.addEventListener('click', function () { controlado = !controlado; pintar(); });
+  pintar();
+})();
+</script>
+</body>
+</html>
